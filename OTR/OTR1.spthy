@@ -1,0 +1,159 @@
+theory OTR1
+begin
+
+builtins: diffie-hellman, signing
+
+
+// Public key infrastructure
+
+rule Register_pk:
+  [ Fr(~ltkA) ]
+  --[ Unique($A) ]->
+  [ !Ltk($A, ~ltkA)
+  , !Pk($A, pk(~ltkA))  
+  , Out(pk(~ltkA)) 
+  ] 
+
+rule Reveal_ltk:
+  [ !Ltk(A, ltkA) ] 
+--[ Reveal(A) ]-> 
+  [ Out(ltkA) ]
+
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: {'1', g^x, Sign{<'init', g^x>, skA}), pkA }
+    2. A <- B: {'2', g^y, Sign{<'resp', g^y>, skB}), pkB }
+  }
+
+*/
+
+
+// Initialization
+
+rule Init_A:
+  [ Fr(~id)
+  , !Ltk(I, ltkI)
+  , !Pk(R, pkR)
+  ]
+--[ Create_A(I, ~id) 
+  , Unique_Init(I)
+  ]->
+  [ St_A_1(I, ~id, ltkI, pkR, R) ] 
+
+rule Init_B:
+  [ Fr(~id)
+  , !Ltk(R, ltkR)
+  , !Pk(I, pkI)
+  ]
+--[ Create_B(R, ~id)  
+  , Unique_Init(R)
+  ]->
+  [ St_B_1(R, ~id, ltkR, pkI, I) ] 
+
+
+// Formalization of 1. for both A and B
+
+rule A_1_Send:
+  let
+     signature = sign(<'init', 'g'^~x>, ltkI)
+     mA1 = <'1', 'g'^~x, signature, pk(ltkI)>
+
+  in
+    [ St_A_1(I, ~id, ltkI, pkR, R) 
+    , Fr(~x)
+    ]
+  --[ Send(I, mA1)
+    , Running(I, R, <'R', 'I', 'g'^~x>)
+    ]->
+    [ St_A_2(I, ~id, ltkI, pkR, R, ~x) 
+    , Out(mA1)
+    ]
+
+
+rule B_1_Receive:
+  let
+     mB1 = <'1', gX, signature, pkI>
+  
+  in
+    [ St_B_1(R, ~id, ltkR, pkI, I) 
+    , In(mB1)
+    ]
+  --[ Receive(R, mB1)
+    , Commit(R, I, <'R', 'I', gX>)
+    , Honest(R)
+    , Honest(I)
+    , Eq(verify(signature, <'init', gX>, pkI), true)
+    ]->
+    [ St_B_2(R, ~id, ltkR, pkI, I, gX) ]
+	
+
+// Formalization of 2. for both A and B
+
+rule B_2_Send:
+  let
+     signature = sign(<'resp', 'g'^~y>,ltkR)
+     mB2 = <'2', 'g'^~y, signature, pk(ltkR)>
+     Kab = gX^~y
+  
+  in
+    [ St_B_2(R, ~id, ltkR, pkI, I, gX) 
+    , Fr(~y)
+    ]
+  --[ Send(R, mB2)
+    , Running(R, I, <'I', 'R', Kab>)
+    , Secret(R, Kab)
+    , Honest(R)
+    , Honest(I)
+    , Finish(R, I, Kab)
+    ]->
+    [ St_B_3(R, ~id, ltkR, pkI, I, Kab) // Ephemeral are destroyed
+    , Out(mB2)
+    ]
+
+
+rule A_2_Receive:
+  let
+     mA2 = <'2', gY, signature, pkI>
+     Kab = gY^x
+
+  in
+    [ St_A_2(I, ~id, ltkI, pkR, R, x) 
+    , In(mA2)
+    ]
+  --[ Receive(I, mA2)
+    , Secret(I, Kab)
+    , Commit(I, R, <'I', 'R', Kab>)
+    , Honest(I)
+    , Honest(R)
+    , Eq(verify(signature, <'resp', gY>, pkR), true)
+    , Finish(I, R, Kab)
+    ]->
+    [ St_A_3(I, ~id, ltkI, pkR, R, Kab) ]
+
+
+// Lemmas
+
+// Verified
+lemma executable:
+  exists-trace
+    "
+      Ex A B t #i #j.
+      	Finish(A, B, t) @i & Finish(B, A, t) @j        
+       & (All A #k #l. Unique_Init(A) @k & Unique_Init(A) @l ==> #k=#l)  
+       & not (Ex B #m. Reveal(B) @m)
+    "
+
+// Restrictions
+
+restriction Equality:
+  "All x y #i. Eq(x,y) @i ==> x = y"
+
+
+restriction Uniqueness:
+  "All X #i #j.
+    Unique(X) @i & Unique(X) @j
+    ==> #i = #j
+  "
+
+end

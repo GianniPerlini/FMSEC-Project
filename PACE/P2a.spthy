@@ -1,0 +1,202 @@
+theory P2a
+begin
+
+builtins: symmetric-encryption
+functions: mac/2
+
+// Shared symmetric key setup and reveal
+
+rule Shared_Key:
+  [ Fr(~skAB) ]
+  --[ NotEq($A, $B) ]->
+  [ !SKey($A, $B, ~skAB) ] 
+
+rule Reveal_SK:
+  [ !SKey(A, B, skAB) ] 
+  --[ Reveal(A), Reveal(B) ]-> 
+  [ Out(skAB) ]
+
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: {'1', x}
+    2. A <- B: {'2', y}
+    3. A -> B: {'3', y}k(A, B)
+    4. A <- B: {'4', x}k(B, A)
+  }
+
+*/	
+
+// Initialization
+
+rule Init_A:
+  [ Fr(~id) 
+  , !SKey(I, R, skAB)
+  , !SKey(R, I, skBA)
+  ]
+  --[ Create_A(I, ~id) ]->
+  [ St_A_1(I, ~id, skAB, skBA, R) ] 
+
+rule Init_B:
+  [ Fr(~id) 
+  , !SKey(I, R, skAB)
+  , !SKey(R, I, skBA)
+  ]
+  --[ Create_B(R, ~id) ]->
+  [ St_B_1(R, ~id, skAB, skBA, I) ] 
+
+// Formalization of 1. for both A and B
+
+rule A_1_Send:
+  let 
+     mA1 = <'1', ~x>
+  in
+  [ St_A_1(I, ~id, skAB, skBA, R)
+  , Fr(~x)
+  ]
+  --[ Send(I, mA1) ]->
+  [ St_A_2(I, ~id, skAB, skBA, R, ~x) 
+  , Out(mA1)
+  ]
+
+rule B_1_Receive:
+  let 
+     mB1 = <'1', x>
+  in
+  [ St_B_1(R, ~id, skAB, skBA, I)
+  , In(mB1)
+  ]
+  --[ Receive(R, mB1) ]->
+  [ St_B_2(R, ~id, skAB, skBA, I, x) ]
+
+// Formalization of 2. for both A and B
+
+rule B_2_Send:
+  let 
+     mB2 = <'2', ~y>
+  in
+  [ St_B_2(R, ~id, skAB, skBA, I, x)
+  , Fr(~y)
+  ]
+--[ Send(R, mB2)
+  , Running(R, I, <'I', 'R', <x, ~y>>)
+  ]->
+  [ St_B_3(R, ~id, skAB, skBA, I, x, ~y)
+  , Out(mB2)
+  ]
+
+rule A_2_Receive:
+  let 
+     mA2 = <'2', y>
+  in
+  [ St_A_2(I, ~id, skAB, skBA, R, x) 
+  , In(mA2)
+  ]
+  --[ Receive(I, mA2) ]->
+  [ St_A_3(I, ~id, skAB, skBA, R, x, y) ]
+
+// Formalization of 3. for both A and B
+
+rule A_3_Send:
+  let 
+     mA3 = mac(<'3', y>, skAB)
+  in
+  [ St_A_3(I, ~id, skAB, skBA, R, x, y) ]
+--[ Send(I, mA3) 
+  , Running(I, R, <'R', 'I', <x, y>>)
+  ]->
+  [ St_A_4(I, ~id, skAB, skBA, R, x, y)
+  , Out(mA3)
+  ]
+
+rule B_3_Receive:
+  let 
+     mB3 = mac(<'3', y>, skAB)
+  in
+  [ St_B_3(R, ~id, skAB, skBA, I, x, y) 
+  , In(mB3)
+  ]
+--[ Receive(R, mB3) 
+  , Commit(R, I, <'R','I', <x, y>>)
+  , Honest(R)
+  , Honest(I)
+  ]->
+  [ St_B_4(R, ~id, skAB, skBA, I, x, y) ]
+
+// Formalization of 4. for both A and B
+
+rule B_4_Send:
+  let mB4 = mac(<'4', x>, skBA)
+  in
+  [ St_B_4(R, ~id, skAB, skBA, I, x, y) ]
+  --[ Send(R, mB4) ]->
+  [ St_B_5(R, ~id, skAB, skBA, I, x, y)
+  , Out(mB4)
+  ]
+
+rule A_4_Receive:
+  let mA4 = mac(<'4', x>, skBA)
+  in
+  [ St_A_4(I, ~id, skAB, skBA, R, x, y)
+  , In(mA4)
+  ]
+--[ Receive(I,mA4)
+  , Commit(I, R, <'I','R', <x, y>>)
+  , Honest(R)
+  , Honest(I)
+  , Finish() 
+  ]->
+  [ St_A_5(I, ~id, skAB, skBA, R, x, y) ]
+
+// Lemmas
+
+// Verfied
+lemma executable:
+  exists-trace
+    "
+      Ex #i.
+         Finish() @i 
+       & not (Ex A #j. Reveal(A) @j) 
+    "
+
+// Not verfied
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// Not verfied
+lemma injectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+
+// Not verfied
+lemma noninjectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+
+// Not verfied
+lemma injectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j 
+              & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>) @i2
+                                 & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+
+// Restrictions	
+
+restriction Inequality:
+  " All X Y #i. NotEq(X, Y) @i ==> not (X = Y) "
+
+end

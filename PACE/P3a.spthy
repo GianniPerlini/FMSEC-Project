@@ -1,0 +1,215 @@
+theory P3a
+begin
+
+builtins: symmetric-encryption
+functions: mac/2, kdf/3
+
+// Shared symmetric key setup and reveal
+
+rule Shared_Key:
+  [ Fr(~skAB) ]
+  --[ NotEq($A, $B) ]->
+  [ !SKey($A, $B, ~skAB) ] 
+
+rule Reveal_SK:
+  [ !SKey(A, B, skAB) ] 
+  --[ Reveal(A), Reveal(B) ]-> 
+  [ Out(skAB) ]
+
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: {'1', x}
+    2. A <- B: {'2', y}
+    -- Key Generation using Kab = KDF(K(A,B), x, y) --
+    3. A -> B: {'3', y}Kab
+    4. A <- B: {'4', x}Kab
+  }
+
+*/	
+
+// Initialization
+
+rule Init_A:
+  [ Fr(~id) 
+  , !SKey(I, R, skAB)
+  ]
+  --[ Create_A(I, ~id) ]->
+  [ St_A_1(I, ~id, skAB, R) ] 
+
+rule Init_B:
+  [ Fr(~id) 
+  , !SKey(I, R, skAB)
+  ]
+  --[ Create_B(R, ~id) ]->
+  [ St_B_1(R, ~id, skAB, I) ] 
+
+
+// Formalization of 1. for both A and B
+
+rule A_1_Send:
+  let 
+     mA1 = <'1', ~x>
+  in
+  [ St_A_1(I, ~id, skAB, R)
+  , Fr(~x)
+  ]
+  --[ Send(I, mA1) ]->
+  [ St_A_2(I, ~id, skAB, R, ~x) 
+  , Out(mA1)
+  ]
+
+rule B_1_Receive:
+  let 
+     mB1 = <'1', x>
+  in
+  [ St_B_1(R, ~id, skAB, I)
+  , In(mB1)
+  ]
+  --[ Receive(R, mB1) ]->
+  [ St_B_2(R, ~id, skAB, I, x) ]
+
+
+// Formalization of 2. for both A and B
+
+rule B_2_Send:
+  let 
+     mB2 = <'2', ~y>
+  in
+  [ St_B_2(R, ~id, skAB, I, x)
+  , Fr(~y)
+  ]
+  --[ Send(R, mB2) ]->
+  [ St_B_3(R, ~id, skAB, I, x, ~y)
+  , Out(mB2)
+  ]
+
+rule A_2_Receive:
+  let 
+     mA2 = <'2', y>
+  in
+  [ St_A_2(I, ~id, skAB, R, x) 
+  , In(mA2)
+  ]
+  --[ Receive(I, mA2) ]->
+  [ St_A_3(I, ~id, skAB, R, x, y) ]
+
+
+// Formalization of 3. for both A and B
+
+rule A_3_Send:
+  let 
+     Kab = kdf(skAB, x, y)
+     mA3 = mac(<'3', y>, Kab)
+  in
+  [ St_A_3(I, ~id, skAB, R, x, y) ]
+--[ Send(I, mA3) 
+  , Running(I, R, <'R', 'I', <x, y, Kab>>)
+  ]->
+  [ St_A_4(I, ~id, skAB, R, x, y)
+  , Out(mA3)
+  ]
+
+rule B_3_Receive:
+  let 
+     Kab = kdf(skAB, x, y)
+     mB3 = mac(<'3', y>, Kab)
+  in
+  [ St_B_3(R, ~id, skAB, I, x, y) 
+  , In(mB3)
+  ]
+--[ Receive(R, mB3) 
+  , Running(R, I, <'I', 'R', <x, y, Kab>>)
+  ]->
+  [ St_B_4(R, ~id, skAB, I, x, y) ]
+
+// Formalization of 4. for both A and B
+
+rule B_4_Send:
+  let 
+     Kab = kdf(skAB, x, y)
+     mB4 = mac(<'4', x>, Kab)
+  in
+  [ St_B_4(R, ~id, skAB, I, x, y) ]
+--[ Send(R, mB4) 
+  , Secret(R, Kab)
+  , Commit(R, I, <'R', 'I', <x, y, Kab>>)
+  , Honest(R)
+  , Honest(I)
+  ]->
+  [ St_B_5(R, ~id, skAB, I, x, y)
+  , Out(mB4)
+  ]
+
+rule A_4_Receive:
+  let 
+     Kab = kdf(skAB, x, y)
+     mA4 = mac(<'4', x>, Kab)
+  in
+  [ St_A_4(I, ~id, skAB, R, x, y)
+  , In(mA4)
+  ]
+--[ Receive(I,mA4) 
+  , Secret(I, Kab)
+  , Commit(I, R, <'I', 'R', <x, y, Kab>>)
+  , Honest(I)
+  , Honest(R)
+  , Finish() 
+  ]->
+  [ St_A_5(I, ~id, skAB, R, x, y) ]
+
+
+// Lemmas
+
+// All of them get verified
+
+lemma executable:
+  exists-trace
+    "
+      Ex #i.
+         Finish() @i 
+       & not (Ex A #j. Reveal(A) @j) 
+    "
+
+lemma secrecy:
+  "All A x #i. 
+    Secret(A,x) @i ==> 
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+lemma injectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+
+lemma noninjectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+lemma injectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j 
+              & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>) @i2
+                                 & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+
+// Restrictions 
+
+restriction Inequality:
+  " All X Y #i. NotEq(X, Y) @i ==> not (X = Y) "
+
+end

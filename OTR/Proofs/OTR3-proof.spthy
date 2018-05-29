@@ -1,0 +1,1429 @@
+theory OTR3 begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: fst/1, pair/2, pk/1, sign/2, snd/1, true/0, verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+rule (modulo E) Register_pk:
+   [ Fr( ~ltkA ) ]
+  --[ Unique( $A ) ]->
+   [ !Ltk( $A, ~ltkA ), !Pk( $A, pk(~ltkA) ), Out( pk(~ltkA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_ltk:
+   [ !Ltk( A, ltkA ) ] --[ Reveal( A ) ]-> [ Out( ltkA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_A:
+   [ Fr( ~id ), !Ltk( I, ltkI ), !Pk( R, pkR ) ]
+  --[ Create_A( I, ~id ), Unique_Init( I ) ]->
+   [ St_A_1( I, ~id, ltkI, pkR, R ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_B:
+   [ Fr( ~id ), !Ltk( R, ltkR ), !Pk( I, pkI ) ]
+  --[ Create_B( R, ~id ), Unique_Init( R ) ]->
+   [ St_B_1( R, ~id, ltkR, pkI, I ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_1_Send:
+   [ St_A_1( I, ~id, ltkI, pkR, R ), Fr( ~x ) ]
+  --[
+  Send( I, <'1', 'g'^~x, sign(<'init', 'g'^~x, R>, ltkI), pk(ltkI)>
+  ),
+  Running( I, R, <'R', 'I', 'g'^~x> )
+  ]->
+   [
+   St_A_2( I, ~id, ltkI, pkR, R, ~x ),
+   Out( <'1', 'g'^~x, sign(<'init', 'g'^~x, R>, ltkI), pk(ltkI)> )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_1_Receive:
+   [ St_B_1( R, ~id, ltkR, pkI, I ), In( <'1', gX, signature, pkI> ) ]
+  --[
+  Receive( R, <'1', gX, signature, pkI> ),
+  Commit( R, I, <'R', 'I', gX> ), Honest( R ), Honest( I ),
+  Eq( verify(signature, <'init', gX, R>, pkI), true )
+  ]->
+   [ St_B_2( R, ~id, ltkR, pkI, I, gX ) ]
+
+  /*
+  rule (modulo AC) B_1_Receive:
+     [ St_B_1( R, ~id, ltkR, pkI, I ), In( <'1', gX, signature, pkI> ) ]
+    --[
+    Receive( R, <'1', gX, signature, pkI> ),
+    Commit( R, I, <'R', 'I', gX> ), Honest( R ), Honest( I ),
+    Eq( z, true )
+    ]->
+     [ St_B_2( R, ~id, ltkR, pkI, I, gX ) ]
+    variants (modulo AC)
+    1. R     = R.17
+       gX    = gX.18
+       pkI   = pkI.20
+       signature
+             = signature.21
+       z     = verify(signature.21, <'init', gX.18, R.17>, pkI.20)
+    
+    2. R     = R.33
+       gX    = gX.34
+       pkI   = pk(x.62)
+       signature
+             = sign(<'init', gX.34, R.33>, x.62)
+       z     = true
+  */
+
+rule (modulo E) B_2_Send:
+   [ St_B_2( R, ~id, ltkR, pkI, I, gX ), Fr( ~y ) ]
+  --[
+  Send( R, <'2', 'g'^~y, sign(<'resp', 'g'^~y, I>, ltkR), pk(ltkR)>
+  ),
+  Secret( R, gX^~y ), Running( R, I, <'I', 'R', gX^~y> ),
+  Honest( R ), Honest( I ), Finish( R, I, gX^~y )
+  ]->
+   [
+   St_B_3( R, ~id, ltkR, pkI, I, gX^~y ),
+   Out( <'2', 'g'^~y, sign(<'resp', 'g'^~y, I>, ltkR), pk(ltkR)> )
+   ]
+
+  /*
+  rule (modulo AC) B_2_Send:
+     [ St_B_2( R, ~id, ltkR, pkI, I, gX ), Fr( ~y ) ]
+    --[
+    Send( R, <'2', 'g'^~y, sign(<'resp', 'g'^~y, I>, ltkR), pk(ltkR)>
+    ),
+    Secret( R, z ), Running( R, I, <'I', 'R', z> ), Honest( R ),
+    Honest( I ), Finish( R, I, z )
+    ]->
+     [
+     St_B_3( R, ~id, ltkR, pkI, I, z ),
+     Out( <'2', 'g'^~y, sign(<'resp', 'g'^~y, I>, ltkR), pk(ltkR)> )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.13
+       gX    = gX.16
+       z     = gX.16^~y.13
+    
+    2. ~y    = ~y.16
+       gX    = z.22^inv(~y.16)
+       z     = z.22
+    
+    3. ~y    = ~y.108
+       gX    = x.212^x.213
+       z     = x.212^(~y.108*x.213)
+    
+    4. ~y    = ~y.109
+       gX    = x.214^inv((~y.109*x.215))
+       z     = x.214^inv(x.215)
+    
+    5. ~y    = ~y.109
+       gX    = x.214^(x.215*inv(~y.109))
+       z     = x.214^x.215
+    
+    6. ~y    = ~y.110
+       gX    = x.215^(x.217*inv((~y.110*x.216)))
+       z     = x.215^(x.217*inv(x.216))
+  */
+
+rule (modulo E) A_2_Receive:
+   [
+   St_A_2( I, ~id, ltkI, pkR, R, x ), In( <'2', gY, signature, pkR> )
+   ]
+  --[
+  Receive( I, <'2', gY, signature, pkR> ), Secret( I, gY^x ),
+  Commit( I, R, <'I', 'R', gY^x> ), Honest( I ), Honest( R ),
+  Eq( verify(signature, <'resp', gY, I>, pkR), true ),
+  Finish( I, R, gY^x )
+  ]->
+   [ St_A_3( I, ~id, ltkI, pkR, R, gY^x ) ]
+
+  /*
+  rule (modulo AC) A_2_Receive:
+     [
+     St_A_2( I, ~id, ltkI, pkR, R, x ), In( <'2', gY, signature, pkR> )
+     ]
+    --[
+    Receive( I, <'2', gY, signature, pkR> ), Secret( I, z ),
+    Commit( I, R, <'I', 'R', z> ), Honest( I ), Honest( R ),
+    Eq( z.1, true ), Finish( I, R, z )
+    ]->
+     [ St_A_3( I, ~id, ltkI, pkR, R, z ) ]
+    variants (modulo AC)
+     1. I     = I.20
+        gY    = gY.22
+        pkR   = pkR.24
+        signature
+              = signature.25
+        x     = one
+        z     = gY.22
+        z.1   = verify(signature.25, <'resp', gY.22, I.20>, pkR.24)
+    
+     2. I     = I.21
+        gY    = gY.23
+        pkR   = pkR.25
+        signature
+              = signature.26
+        x     = x.27
+        z     = gY.23^x.27
+        z.1   = verify(signature.26, <'resp', gY.23, I.21>, pkR.25)
+    
+     3. I     = I.23
+        gY    = z.31^inv(x.29)
+        pkR   = pkR.27
+        signature
+              = signature.28
+        x     = x.29
+        z     = z.31
+        z.1   = verify(signature.28, <'resp', z.31^inv(x.29), I.23>,
+                       pkR.27)
+    
+     4. I     = I.40
+        gY    = z.48^x.77
+        pkR   = pkR.44
+        signature
+              = signature.45
+        x     = inv(x.77)
+        z     = z.48
+        z.1   = verify(signature.45, <'resp', z.48^x.77, I.40>, pkR.44)
+    
+     5. I     = I.40
+        gY    = x.76^x.77
+        pkR   = pkR.44
+        signature
+              = signature.45
+        x     = x.46
+        z     = x.76^(x.46*x.77)
+        z.1   = verify(signature.45, <'resp', x.76^x.77, I.40>, pkR.44)
+    
+     6. I     = I.41
+        gY    = gY.43
+        pkR   = pk(x.79)
+        signature
+              = sign(<'resp', gY.43, I.41>, x.79)
+        x     = x.47
+        z     = gY.43^x.47
+        z.1   = true
+    
+     7. I     = I.41
+        gY    = gY.43
+        pkR   = pk(x.79)
+        signature
+              = sign(<'resp', gY.43, I.41>, x.79)
+        x     = one
+        z     = gY.43
+        z.1   = true
+    
+     8. I     = I.41
+        gY    = z.49^(x.78*inv(x.79))
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = (x.79*inv(x.78))
+        z     = z.49
+        z.1   = verify(signature.46, <'resp', z.49^(x.78*inv(x.79)), I.41>,
+                       pkR.45)
+    
+     9. I     = I.41
+        gY    = x.77^x.78
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = inv((x.78*x.79))
+        z     = x.77^inv(x.79)
+        z.1   = verify(signature.46, <'resp', x.77^x.78, I.41>, pkR.45)
+    
+    10. I     = I.41
+        gY    = x.77^x.78
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = (x.79*inv(x.78))
+        z     = x.77^x.79
+        z.1   = verify(signature.46, <'resp', x.77^x.78, I.41>, pkR.45)
+    
+    11. I     = I.41
+        gY    = x.77^inv(x.78)
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = (x.78*x.79)
+        z     = x.77^x.79
+        z.1   = verify(signature.46, <'resp', x.77^inv(x.78), I.41>,
+                       pkR.45)
+    
+    12. I     = I.41
+        gY    = x.77^inv(x.79)
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = inv(x.78)
+        z     = x.77^inv((x.78*x.79))
+        z.1   = verify(signature.46, <'resp', x.77^inv(x.79), I.41>,
+                       pkR.45)
+    
+    13. I     = I.41
+        gY    = x.77^inv((x.47*x.79))
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = x.47
+        z     = x.77^inv(x.79)
+        z.1   = verify(signature.46, <'resp', x.77^inv((x.47*x.79)), I.41>,
+                       pkR.45)
+    
+    14. I     = I.41
+        gY    = x.77^(x.78*x.79)
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = inv(x.78)
+        z     = x.77^x.79
+        z.1   = verify(signature.46, <'resp', x.77^(x.78*x.79), I.41>,
+                       pkR.45)
+    
+    15. I     = I.41
+        gY    = x.77^(x.79*inv(x.47))
+        pkR   = pkR.45
+        signature
+              = signature.46
+        x     = x.47
+        z     = x.77^x.79
+        z.1   = verify(signature.46, <'resp', x.77^(x.79*inv(x.47)), I.41>,
+                       pkR.45)
+    
+    16. I     = I.42
+        gY    = z.50^x.80
+        pkR   = pk(x.81)
+        signature
+              = sign(<'resp', z.50^x.80, I.42>, x.81)
+        x     = inv(x.80)
+        z     = z.50
+        z.1   = true
+    
+    17. I     = I.42
+        gY    = z.50^inv(x.48)
+        pkR   = pk(x.81)
+        signature
+              = sign(<'resp', z.50^inv(x.48), I.42>, x.81)
+        x     = x.48
+        z     = z.50
+        z.1   = true
+    
+    18. I     = I.42
+        gY    = x.78^x.79
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.81*inv((x.79*x.80)))
+        z     = x.78^(x.81*inv(x.80))
+        z.1   = verify(signature.47, <'resp', x.78^x.79, I.42>, pkR.46)
+    
+    19. I     = I.42
+        gY    = x.78^inv(x.79)
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.81*inv(x.80))
+        z     = x.78^(x.81*inv((x.79*x.80)))
+        z.1   = verify(signature.47, <'resp', x.78^inv(x.79), I.42>,
+                       pkR.46)
+    
+    20. I     = I.42
+        gY    = x.78^inv((x.79*x.80))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.80*x.81)
+        z     = x.78^(x.81*inv(x.79))
+        z.1   = verify(signature.47, <'resp', x.78^inv((x.79*x.80)), I.42>,
+                       pkR.46)
+    
+    21. I     = I.42
+        gY    = x.78^inv((x.80*x.81))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.81*inv(x.79))
+        z     = x.78^inv((x.79*x.80))
+        z.1   = verify(signature.47, <'resp', x.78^inv((x.80*x.81)), I.42>,
+                       pkR.46)
+    
+    22. I     = I.42
+        gY    = x.78^(x.79*x.81)
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.80*inv(x.79))
+        z     = x.78^(x.80*x.81)
+        z.1   = verify(signature.47, <'resp', x.78^(x.79*x.81), I.42>,
+                       pkR.46)
+    
+    23. I     = I.42
+        gY    = x.78^(x.79*x.81*inv(x.80))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.80*inv(x.79))
+        z     = x.78^x.81
+        z.1   = verify(signature.47,
+                       <'resp', x.78^(x.79*x.81*inv(x.80)), I.42>, pkR.46)
+    
+    24. I     = I.42
+        gY    = x.78^(x.79*inv(x.80))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.80*x.81*inv(x.79))
+        z     = x.78^x.81
+        z.1   = verify(signature.47, <'resp', x.78^(x.79*inv(x.80)), I.42>,
+                       pkR.46)
+    
+    25. I     = I.42
+        gY    = x.78^(x.79*inv((x.80*x.81)))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.81*inv(x.79))
+        z     = x.78^inv(x.80)
+        z.1   = verify(signature.47,
+                       <'resp', x.78^(x.79*inv((x.80*x.81))), I.42>, pkR.46)
+    
+    26. I     = I.42
+        gY    = x.78^(x.80*x.81)
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = inv((x.79*x.80))
+        z     = x.78^(x.81*inv(x.79))
+        z.1   = verify(signature.47, <'resp', x.78^(x.80*x.81), I.42>,
+                       pkR.46)
+    
+    27. I     = I.42
+        gY    = x.78^(x.81*inv(x.79))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = inv((x.80*x.81))
+        z     = x.78^inv((x.79*x.80))
+        z.1   = verify(signature.47, <'resp', x.78^(x.81*inv(x.79)), I.42>,
+                       pkR.46)
+    
+    28. I     = I.42
+        gY    = x.78^(x.81*inv(x.79))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.79*x.80)
+        z     = x.78^(x.80*x.81)
+        z.1   = verify(signature.47, <'resp', x.78^(x.81*inv(x.79)), I.42>,
+                       pkR.46)
+    
+    29. I     = I.42
+        gY    = x.78^(x.81*inv(x.79))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = (x.79*inv((x.80*x.81)))
+        z     = x.78^inv(x.80)
+        z.1   = verify(signature.47, <'resp', x.78^(x.81*inv(x.79)), I.42>,
+                       pkR.46)
+    
+    30. I     = I.42
+        gY    = x.78^(x.81*inv(x.80))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = inv(x.79)
+        z     = x.78^(x.81*inv((x.79*x.80)))
+        z.1   = verify(signature.47, <'resp', x.78^(x.81*inv(x.80)), I.42>,
+                       pkR.46)
+    
+    31. I     = I.42
+        gY    = x.78^(x.81*inv((x.48*x.80)))
+        pkR   = pkR.46
+        signature
+              = signature.47
+        x     = x.48
+        z     = x.78^(x.81*inv(x.80))
+        z.1   = verify(signature.47,
+                       <'resp', x.78^(x.81*inv((x.48*x.80))), I.42>, pkR.46)
+    
+    32. I     = I.42
+        gY    = x.79^x.81
+        pkR   = pk(x.80)
+        signature
+              = sign(<'resp', x.79^x.81, I.42>, x.80)
+        x     = x.48
+        z     = x.79^(x.48*x.81)
+        z.1   = true
+    
+    33. I     = I.43
+        gY    = z.51^(x.82*inv(x.81))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', z.51^(x.82*inv(x.81)), I.43>, x.83)
+        x     = (x.81*inv(x.82))
+        z     = z.51
+        z.1   = true
+    
+    34. I     = I.43
+        gY    = x.79^inv((x.81*x.82))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.82*x.83*inv(x.80))
+        z     = x.79^(x.83*inv((x.80*x.81)))
+        z.1   = verify(signature.48, <'resp', x.79^inv((x.81*x.82)), I.43>,
+                       pkR.47)
+    
+    35. I     = I.43
+        gY    = x.79^(x.80*x.83*inv(x.81))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.81*x.82*inv(x.80))
+        z     = x.79^(x.82*x.83)
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.80*x.83*inv(x.81)), I.43>, pkR.47)
+    
+    36. I     = I.43
+        gY    = x.79^(x.80*x.83*inv((x.81*x.82)))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.82*inv(x.80))
+        z     = x.79^(x.83*inv(x.81))
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.80*x.83*inv((x.81*x.82))), I.43>, pkR.47)
+    
+    37. I     = I.43
+        gY    = x.79^(x.80*inv((x.81*x.82)))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.82*x.83*inv(x.80))
+        z     = x.79^(x.83*inv(x.81))
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.80*inv((x.81*x.82))), I.43>, pkR.47)
+    
+    38. I     = I.43
+        gY    = x.79^(x.81*x.83)
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.82*inv((x.80*x.81)))
+        z     = x.79^(x.82*x.83*inv(x.80))
+        z.1   = verify(signature.48, <'resp', x.79^(x.81*x.83), I.43>,
+                       pkR.47)
+    
+    39. I     = I.43
+        gY    = x.79^(x.81*inv((x.82*x.83)))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.83*inv((x.80*x.81)))
+        z     = x.79^inv((x.80*x.82))
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.81*inv((x.82*x.83))), I.43>, pkR.47)
+    
+    40. I     = I.43
+        gY    = x.79^(x.82*x.83*inv(x.80))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = inv((x.81*x.82))
+        z     = x.79^(x.83*inv((x.80*x.81)))
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.82*x.83*inv(x.80)), I.43>, pkR.47)
+    
+    41. I     = I.43
+        gY    = x.79^(x.82*x.83*inv(x.80))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.80*inv((x.81*x.82)))
+        z     = x.79^(x.83*inv(x.81))
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.82*x.83*inv(x.80)), I.43>, pkR.47)
+    
+    42. I     = I.43
+        gY    = x.79^(x.82*inv(x.80))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.80*x.83*inv((x.81*x.82)))
+        z     = x.79^(x.83*inv(x.81))
+        z.1   = verify(signature.48, <'resp', x.79^(x.82*inv(x.80)), I.43>,
+                       pkR.47)
+    
+    43. I     = I.43
+        gY    = x.79^(x.82*inv(x.80))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.83*inv((x.81*x.82)))
+        z     = x.79^(x.83*inv((x.80*x.81)))
+        z.1   = verify(signature.48, <'resp', x.79^(x.82*inv(x.80)), I.43>,
+                       pkR.47)
+    
+    44. I     = I.43
+        gY    = x.79^(x.83*inv(x.81))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.82*inv(x.80))
+        z     = x.79^(x.82*x.83*inv((x.80*x.81)))
+        z.1   = verify(signature.48, <'resp', x.79^(x.83*inv(x.81)), I.43>,
+                       pkR.47)
+    
+    45. I     = I.43
+        gY    = x.79^(x.83*inv((x.80*x.81)))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.81*x.82)
+        z     = x.79^(x.82*x.83*inv(x.80))
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.83*inv((x.80*x.81))), I.43>, pkR.47)
+    
+    46. I     = I.43
+        gY    = x.79^(x.83*inv((x.81*x.82)))
+        pkR   = pkR.47
+        signature
+              = signature.48
+        x     = (x.82*inv(x.80))
+        z     = x.79^(x.83*inv((x.80*x.81)))
+        z.1   = verify(signature.48,
+                       <'resp', x.79^(x.83*inv((x.81*x.82))), I.43>, pkR.47)
+    
+    47. I     = I.43
+        gY    = x.80^x.81
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.80^x.81, I.43>, x.82)
+        x     = (x.83*inv(x.81))
+        z     = x.80^x.83
+        z.1   = true
+    
+    48. I     = I.43
+        gY    = x.80^x.82
+        pkR   = pk(x.81)
+        signature
+              = sign(<'resp', x.80^x.82, I.43>, x.81)
+        x     = inv((x.82*x.83))
+        z     = x.80^inv(x.83)
+        z.1   = true
+    
+    49. I     = I.43
+        gY    = x.80^inv(x.81)
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.80^inv(x.81), I.43>, x.82)
+        x     = (x.81*x.83)
+        z     = x.80^x.83
+        z.1   = true
+    
+    50. I     = I.43
+        gY    = x.80^inv(x.81)
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.80^inv(x.81), I.43>, x.83)
+        x     = inv(x.82)
+        z     = x.80^inv((x.81*x.82))
+        z.1   = true
+    
+    51. I     = I.43
+        gY    = x.80^inv((x.49*x.83))
+        pkR   = pk(x.81)
+        signature
+              = sign(<'resp', x.80^inv((x.49*x.83)), I.43>, x.81)
+        x     = x.49
+        z     = x.80^inv(x.83)
+        z.1   = true
+    
+    52. I     = I.43
+        gY    = x.80^(x.81*x.83)
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.80^(x.81*x.83), I.43>, x.82)
+        x     = inv(x.81)
+        z     = x.80^x.83
+        z.1   = true
+    
+    53. I     = I.43
+        gY    = x.80^(x.83*inv(x.49))
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.80^(x.83*inv(x.49)), I.43>, x.82)
+        x     = x.49
+        z     = x.80^x.83
+        z.1   = true
+    
+    54. I     = I.44
+        gY    = x.80^(x.81*x.85*inv((x.82*x.83)))
+        pkR   = pkR.48
+        signature
+              = signature.49
+        x     = (x.83*x.84*inv(x.81))
+        z     = x.80^(x.84*x.85*inv(x.82))
+        z.1   = verify(signature.49,
+                       <'resp', x.80^(x.81*x.85*inv((x.82*x.83))), I.44>, pkR.48)
+    
+    55. I     = I.44
+        gY    = x.80^(x.82*x.85*inv((x.83*x.84)))
+        pkR   = pkR.48
+        signature
+              = signature.49
+        x     = (x.84*inv((x.81*x.82)))
+        z     = x.80^(x.85*inv((x.81*x.83)))
+        z.1   = verify(signature.49,
+                       <'resp', x.80^(x.82*x.85*inv((x.83*x.84))), I.44>, pkR.48)
+    
+    56. I     = I.44
+        gY    = x.80^(x.82*inv((x.83*x.84)))
+        pkR   = pkR.48
+        signature
+              = signature.49
+        x     = (x.84*x.85*inv((x.81*x.82)))
+        z     = x.80^(x.85*inv((x.81*x.83)))
+        z.1   = verify(signature.49,
+                       <'resp', x.80^(x.82*inv((x.83*x.84))), I.44>, pkR.48)
+    
+    57. I     = I.44
+        gY    = x.80^(x.83*x.85*inv(x.81))
+        pkR   = pkR.48
+        signature
+              = signature.49
+        x     = (x.81*x.84*inv((x.82*x.83)))
+        z     = x.80^(x.84*x.85*inv(x.82))
+        z.1   = verify(signature.49,
+                       <'resp', x.80^(x.83*x.85*inv(x.81)), I.44>, pkR.48)
+    
+    58. I     = I.44
+        gY    = x.80^(x.83*x.85*inv(x.81))
+        pkR   = pkR.48
+        signature
+              = signature.49
+        x     = (x.84*inv((x.82*x.83)))
+        z     = x.80^(x.84*x.85*inv((x.81*x.82)))
+        z.1   = verify(signature.49,
+                       <'resp', x.80^(x.83*x.85*inv(x.81)), I.44>, pkR.48)
+    
+    59. I     = I.44
+        gY    = x.80^(x.85*inv((x.82*x.83)))
+        pkR   = pkR.48
+        signature
+              = signature.49
+        x     = (x.83*x.84*inv(x.81))
+        z     = x.80^(x.84*x.85*inv((x.81*x.82)))
+        z.1   = verify(signature.49,
+                       <'resp', x.80^(x.85*inv((x.82*x.83))), I.44>, pkR.48)
+    
+    60. I     = I.44
+        gY    = x.81^x.83
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.81^x.83, I.44>, x.82)
+        x     = (x.85*inv((x.83*x.84)))
+        z     = x.81^(x.85*inv(x.84))
+        z.1   = true
+    
+    61. I     = I.44
+        gY    = x.81^inv(x.82)
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.81^inv(x.82), I.44>, x.84)
+        x     = (x.85*inv(x.83))
+        z     = x.81^(x.85*inv((x.82*x.83)))
+        z.1   = true
+    
+    62. I     = I.44
+        gY    = x.81^inv((x.83*x.84))
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.81^inv((x.83*x.84)), I.44>, x.82)
+        x     = (x.84*x.85)
+        z     = x.81^(x.85*inv(x.83))
+        z.1   = true
+    
+    63. I     = I.44
+        gY    = x.81^inv((x.84*x.85))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.81^inv((x.84*x.85)), I.44>, x.83)
+        x     = (x.85*inv(x.82))
+        z     = x.81^inv((x.82*x.84))
+        z.1   = true
+    
+    64. I     = I.44
+        gY    = x.81^(x.82*x.84)
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.81^(x.82*x.84), I.44>, x.83)
+        x     = (x.85*inv(x.82))
+        z     = x.81^(x.84*x.85)
+        z.1   = true
+    
+    65. I     = I.44
+        gY    = x.81^(x.82*inv((x.84*x.85)))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.81^(x.82*inv((x.84*x.85))), I.44>, x.83)
+        x     = (x.85*inv(x.82))
+        z     = x.81^inv(x.84)
+        z.1   = true
+    
+    66. I     = I.44
+        gY    = x.81^(x.83*x.85*inv(x.82))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.81^(x.83*x.85*inv(x.82)), I.44>, x.84)
+        x     = (x.82*inv(x.83))
+        z     = x.81^x.85
+        z.1   = true
+    
+    67. I     = I.44
+        gY    = x.81^(x.83*inv(x.82))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.81^(x.83*inv(x.82)), I.44>, x.84)
+        x     = (x.82*x.85*inv(x.83))
+        z     = x.81^x.85
+        z.1   = true
+    
+    68. I     = I.44
+        gY    = x.81^(x.84*x.85)
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.81^(x.84*x.85), I.44>, x.82)
+        x     = inv((x.83*x.84))
+        z     = x.81^(x.85*inv(x.83))
+        z.1   = true
+    
+    69. I     = I.44
+        gY    = x.81^(x.84*inv(x.82))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.81^(x.84*inv(x.82)), I.44>, x.83)
+        x     = (x.82*x.85)
+        z     = x.81^(x.84*x.85)
+        z.1   = true
+    
+    70. I     = I.44
+        gY    = x.81^(x.85*inv(x.82))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.81^(x.85*inv(x.82)), I.44>, x.83)
+        x     = inv((x.84*x.85))
+        z     = x.81^inv((x.82*x.84))
+        z.1   = true
+    
+    71. I     = I.44
+        gY    = x.81^(x.85*inv(x.82))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.81^(x.85*inv(x.82)), I.44>, x.83)
+        x     = (x.82*inv((x.84*x.85)))
+        z     = x.81^inv(x.84)
+        z.1   = true
+    
+    72. I     = I.44
+        gY    = x.81^(x.85*inv(x.83))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.81^(x.85*inv(x.83)), I.44>, x.84)
+        x     = inv(x.82)
+        z     = x.81^(x.85*inv((x.82*x.83)))
+        z.1   = true
+    
+    73. I     = I.44
+        gY    = x.81^(x.85*inv((x.50*x.84)))
+        pkR   = pk(x.82)
+        signature
+              = sign(<'resp', x.81^(x.85*inv((x.50*x.84))), I.44>, x.82)
+        x     = x.50
+        z     = x.81^(x.85*inv(x.84))
+        z.1   = true
+    
+    74. I     = I.45
+        gY    = x.81^(x.83*x.87*inv((x.84*x.85)))
+        pkR   = pkR.49
+        signature
+              = signature.50
+        x     = (x.85*x.86*inv((x.82*x.83)))
+        z     = x.81^(x.86*x.87*inv((x.82*x.84)))
+        z.1   = verify(signature.50,
+                       <'resp', x.81^(x.83*x.87*inv((x.84*x.85))), I.45>, pkR.49)
+    
+    75. I     = I.45
+        gY    = x.82^inv((x.85*x.86))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^inv((x.85*x.86)), I.45>, x.84)
+        x     = (x.86*x.87*inv(x.83))
+        z     = x.82^(x.87*inv((x.83*x.85)))
+        z.1   = true
+    
+    76. I     = I.45
+        gY    = x.82^(x.83*x.87*inv((x.85*x.86)))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^(x.83*x.87*inv((x.85*x.86))), I.45>, x.84)
+        x     = (x.86*inv(x.83))
+        z     = x.82^(x.87*inv(x.85))
+        z.1   = true
+    
+    77. I     = I.45
+        gY    = x.82^(x.83*inv((x.85*x.86)))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^(x.83*inv((x.85*x.86))), I.45>, x.84)
+        x     = (x.86*x.87*inv(x.83))
+        z     = x.82^(x.87*inv(x.85))
+        z.1   = true
+    
+    78. I     = I.45
+        gY    = x.82^(x.84*x.86*inv(x.83))
+        pkR   = pk(x.85)
+        signature
+              = sign(<'resp', x.82^(x.84*x.86*inv(x.83)), I.45>, x.85)
+        x     = (x.83*x.87*inv(x.84))
+        z     = x.82^(x.86*x.87)
+        z.1   = true
+    
+    79. I     = I.45
+        gY    = x.82^(x.85*x.86)
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.82^(x.85*x.86), I.45>, x.83)
+        x     = (x.87*inv((x.84*x.85)))
+        z     = x.82^(x.86*x.87*inv(x.84))
+        z.1   = true
+    
+    80. I     = I.45
+        gY    = x.82^(x.86*x.87*inv(x.83))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^(x.86*x.87*inv(x.83)), I.45>, x.84)
+        x     = inv((x.85*x.86))
+        z     = x.82^(x.87*inv((x.83*x.85)))
+        z.1   = true
+    
+    81. I     = I.45
+        gY    = x.82^(x.86*x.87*inv(x.83))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^(x.86*x.87*inv(x.83)), I.45>, x.84)
+        x     = (x.83*inv((x.85*x.86)))
+        z     = x.82^(x.87*inv(x.85))
+        z.1   = true
+    
+    82. I     = I.45
+        gY    = x.82^(x.86*inv(x.83))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^(x.86*inv(x.83)), I.45>, x.84)
+        x     = (x.83*x.87*inv((x.85*x.86)))
+        z     = x.82^(x.87*inv(x.85))
+        z.1   = true
+    
+    83. I     = I.45
+        gY    = x.82^(x.86*inv(x.83))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^(x.86*inv(x.83)), I.45>, x.84)
+        x     = (x.87*inv((x.85*x.86)))
+        z     = x.82^(x.87*inv((x.83*x.85)))
+        z.1   = true
+    
+    84. I     = I.45
+        gY    = x.82^(x.86*inv(x.83))
+        pkR   = pk(x.85)
+        signature
+              = sign(<'resp', x.82^(x.86*inv(x.83)), I.45>, x.85)
+        x     = (x.87*inv(x.84))
+        z     = x.82^(x.86*x.87*inv((x.83*x.84)))
+        z.1   = true
+    
+    85. I     = I.45
+        gY    = x.82^(x.86*inv((x.84*x.85)))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.82^(x.86*inv((x.84*x.85))), I.45>, x.83)
+        x     = (x.85*x.87)
+        z     = x.82^(x.86*x.87*inv(x.84))
+        z.1   = true
+    
+    86. I     = I.45
+        gY    = x.82^(x.87*inv((x.84*x.85)))
+        pkR   = pk(x.83)
+        signature
+              = sign(<'resp', x.82^(x.87*inv((x.84*x.85))), I.45>, x.83)
+        x     = (x.85*inv((x.86*x.87)))
+        z     = x.82^inv((x.84*x.86))
+        z.1   = true
+    
+    87. I     = I.45
+        gY    = x.82^(x.87*inv((x.85*x.86)))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.82^(x.87*inv((x.85*x.86))), I.45>, x.84)
+        x     = (x.86*inv(x.83))
+        z     = x.82^(x.87*inv((x.83*x.85)))
+        z.1   = true
+    
+    88. I     = I.46
+        gY    = x.83^(x.84*x.88*inv((x.86*x.87)))
+        pkR   = pk(x.85)
+        signature
+              = sign(<'resp', x.83^(x.84*x.88*inv((x.86*x.87))), I.46>, x.85)
+        x     = (x.87*x.89*inv(x.84))
+        z     = x.83^(x.88*x.89*inv(x.86))
+        z.1   = true
+    
+    89. I     = I.46
+        gY    = x.83^(x.87*x.88*inv(x.84))
+        pkR   = pk(x.85)
+        signature
+              = sign(<'resp', x.83^(x.87*x.88*inv(x.84)), I.46>, x.85)
+        x     = (x.84*x.89*inv((x.86*x.87)))
+        z     = x.83^(x.88*x.89*inv(x.86))
+        z.1   = true
+    
+    90. I     = I.46
+        gY    = x.83^(x.87*x.88*inv(x.84))
+        pkR   = pk(x.85)
+        signature
+              = sign(<'resp', x.83^(x.87*x.88*inv(x.84)), I.46>, x.85)
+        x     = (x.89*inv((x.86*x.87)))
+        z     = x.83^(x.88*x.89*inv((x.84*x.86)))
+        z.1   = true
+    
+    91. I     = I.46
+        gY    = x.83^(x.88*x.89*inv((x.85*x.86)))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.83^(x.88*x.89*inv((x.85*x.86))), I.46>, x.84)
+        x     = (x.86*inv((x.87*x.88)))
+        z     = x.83^(x.89*inv((x.85*x.87)))
+        z.1   = true
+    
+    92. I     = I.46
+        gY    = x.83^(x.88*inv((x.85*x.86)))
+        pkR   = pk(x.84)
+        signature
+              = sign(<'resp', x.83^(x.88*inv((x.85*x.86))), I.46>, x.84)
+        x     = (x.86*x.89*inv((x.87*x.88)))
+        z     = x.83^(x.89*inv((x.85*x.87)))
+        z.1   = true
+    
+    93. I     = I.46
+        gY    = x.83^(x.88*inv((x.86*x.87)))
+        pkR   = pk(x.85)
+        signature
+              = sign(<'resp', x.83^(x.88*inv((x.86*x.87))), I.46>, x.85)
+        x     = (x.87*x.89*inv(x.84))
+        z     = x.83^(x.88*x.89*inv((x.84*x.86)))
+        z.1   = true
+    
+    94. I     = I.47
+        gY    = x.84^(x.89*x.90*inv((x.86*x.87)))
+        pkR   = pk(x.85)
+        signature
+              = sign(<'resp', x.84^(x.89*x.90*inv((x.86*x.87))), I.47>, x.85)
+        x     = (x.87*x.91*inv((x.88*x.89)))
+        z     = x.84^(x.90*x.91*inv((x.86*x.88)))
+        z.1   = true
+  */
+
+lemma executable:
+  exists-trace
+  "∃ A B t #i #j.
+    (((Finish( A, B, t ) @ #i) ∧ (Finish( B, A, t ) @ #j)) ∧
+     (∀ A.1 #k #l.
+       ((Unique_Init( A.1 ) @ #k) ∧ (Unique_Init( A.1 ) @ #l)) ⇒
+       (#k = #l))) ∧
+    (¬(∃ B.1 #m. Reveal( B.1 ) @ #m))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ A B t #i #j.
+  (Finish( A, B, t ) @ #i) ∧ (Finish( B, A, t ) @ #j)
+ ∧
+  (∀ A.1 #k #l.
+    (Unique_Init( A.1 ) @ #k) ∧ (Unique_Init( A.1 ) @ #l) ⇒ #k = #l) ∧
+  (∀ B.1 #m. (Reveal( B.1 ) @ #m) ⇒ ⊥)"
+*/
+simplify
+solve( Finish( A, B, t ) @ #i )
+  case A_2_Receive
+  solve( St_A_2( A, ~id, ltkI, pk(x), B, x.1 ) ▶₀ #i )
+    case A_1_Send
+    solve( Finish( $A.1, $A, t ) @ #j )
+      case B_2_Send
+      solve( St_B_2( $A.1, ~id.1, ltkR, pkI, $A, gX ) ▶₀ #j )
+        case B_1_Receive
+        solve( !KU( sign(<'resp', gY, $A>, ~ltkA.1) ) @ #vk.5 )
+          case B_2_Send
+          solve( !KU( sign(<'init', 'g'^~x, $A.1>, ~ltkA) ) @ #vk.12 )
+            case A_1_Send
+            solve( !KU( pk(~ltkA.1) ) @ #vk.7 )
+              case B_2_Send
+              solve( !KU( pk(~ltkA) ) @ #vk.13 )
+                case A_1_Send
+                solve( !KU( 'g'^~y ) @ #vk.11 )
+                  case B_2_Send
+                  solve( !KU( 'g'^~x ) @ #vk.13 )
+                    case A_1_Send
+                    SOLVED // trace found
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma secrecy:
+  all-traces
+  "∀ A x #i.
+    (Secret( A, x ) @ #i) ⇒
+    ((¬(∃ #j. K( x ) @ #j)) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ A x #i.
+  (Secret( A, x ) @ #i)
+ ∧
+  (∃ #j. (K( x ) @ #j)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Secret( A, x ) @ #i )
+  case A_2_Receive
+  solve( St_A_2( A, ~id, ltkI, pk(x), R, x.1 ) ▶₀ #i )
+    case A_1_Send
+    solve( !KU( sign(<'resp', gY, $A>, ~ltkA.1) ) @ #vk.6 )
+      case B_2_Send
+      solve( !KU( sign(<'init', gX, $A.1>, ~ltkA) ) @ #vk.13 )
+        case A_1_Send
+        solve( !KU( 'g'^(~x*~y) ) @ #vk.4 )
+          case A_1_Send
+          by solve( !KU( ~y ) @ #vk.15 )
+        next
+          case B_2_Send
+          by solve( !KU( ~x ) @ #vk.15 )
+        next
+          case c_exp
+          by solve( !KU( ~x ) @ #vk.17 )
+        qed
+      next
+        case c_sign
+        solve( !KU( ~ltkA ) @ #vk.17 )
+          case Reveal_ltk
+          by contradiction /* from formulas */
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltkA.1 ) @ #vk.10 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case B_2_Send
+  solve( St_B_2( A, ~id, ltkR, pkI, I, gX ) ▶₀ #i )
+    case B_1_Receive
+    solve( !KU( sign(<'init', gX, $A>, ~ltkA.1) ) @ #vk.6 )
+      case A_1_Send
+      solve( !KU( 'g'^(~x*~y) ) @ #vk.1 )
+        case A_1_Send
+        by solve( !KU( ~y ) @ #vk.8 )
+      next
+        case B_2_Send
+        by solve( !KU( ~x ) @ #vk.8 )
+      next
+        case c_exp
+        by solve( !KU( ~x ) @ #vk.10 )
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltkA.1 ) @ #vk.10 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma secrecy_PFS:
+  all-traces
+  "∀ A x #i.
+    (Secret( A, x ) @ #i) ⇒
+    ((¬(∃ #j. K( x ) @ #j)) ∨
+     (∃ X #r. ((Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)) ∧ (#r < #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ A x #i.
+  (Secret( A, x ) @ #i)
+ ∧
+  (∃ #j. (K( x ) @ #j)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ¬(#r < #i))"
+*/
+simplify
+solve( Secret( A, x ) @ #i )
+  case A_2_Receive
+  solve( St_A_2( A, ~id, ltkI, pk(x), R, x.1 ) ▶₀ #i )
+    case A_1_Send
+    solve( !KU( sign(<'resp', gY, $A>, ~ltkA.1) ) @ #vk.6 )
+      case B_2_Send
+      solve( !KU( sign(<'init', gX, $A.1>, ~ltkA) ) @ #vk.13 )
+        case A_1_Send
+        solve( !KU( 'g'^(~x*~y) ) @ #vk.4 )
+          case A_1_Send
+          by solve( !KU( ~y ) @ #vk.15 )
+        next
+          case B_2_Send
+          by solve( !KU( ~x ) @ #vk.15 )
+        next
+          case c_exp
+          by solve( !KU( ~x ) @ #vk.17 )
+        qed
+      next
+        case c_sign
+        solve( !KU( ~ltkA ) @ #vk.17 )
+          case Reveal_ltk
+          by contradiction /* from formulas */
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltkA.1 ) @ #vk.10 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case B_2_Send
+  solve( St_B_2( A, ~id, ltkR, pkI, I, gX ) ▶₀ #i )
+    case B_1_Receive
+    solve( !KU( sign(<'init', gX, $A>, ~ltkA.1) ) @ #vk.6 )
+      case A_1_Send
+      solve( !KU( 'g'^(~x*~y) ) @ #vk.1 )
+        case A_1_Send
+        by solve( !KU( ~y ) @ #vk.8 )
+      next
+        case B_2_Send
+        by solve( !KU( ~x ) @ #vk.8 )
+      next
+        case c_exp
+        by solve( !KU( ~x ) @ #vk.10 )
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltkA.1 ) @ #vk.10 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma noninjectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j. Running( b, a, <'I', 'R', t> ) @ #j) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j. (Running( b, a, <'I', 'R', t> ) @ #j) ⇒ ⊥) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'I', 'R', t> ) @ #i )
+  case A_2_Receive
+  solve( St_A_2( a, ~id, ltkI, pk(x), b, x.1 ) ▶₀ #i )
+    case A_1_Send
+    solve( !KU( sign(<'resp', gY, $A>, ~ltkA.1) ) @ #vk.5 )
+      case B_2_Send
+      solve( !KU( sign(<'init', gX, $A.1>, ~ltkA) ) @ #vk.12 )
+        case A_1_Send
+        solve( !KU( pk(~ltkA.1) ) @ #vk.7 )
+          case A_1_Send
+          solve( !KU( pk(~ltkA) ) @ #vk.13 )
+            case A_1_Send
+            solve( !KU( 'g'^~y ) @ #vk.11 )
+              case B_2_Send
+              solve( !KU( 'g'^~x.1 ) @ #vk.13 )
+                case A_1_Send
+                SOLVED // trace found
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'I', 'R', t> ) @ #i )
+  case A_2_Receive
+  solve( St_A_2( a, ~id, ltkI, pk(x), b, x.1 ) ▶₀ #i )
+    case A_1_Send
+    solve( !KU( sign(<'resp', gY, $A>, ~ltkA.1) ) @ #vk.5 )
+      case B_2_Send
+      solve( !KU( sign(<'init', gX, $A.1>, ~ltkA) ) @ #vk.12 )
+        case A_1_Send
+        solve( !KU( pk(~ltkA.1) ) @ #vk.7 )
+          case A_1_Send
+          solve( !KU( pk(~ltkA) ) @ #vk.13 )
+            case A_1_Send
+            solve( !KU( 'g'^~y ) @ #vk.11 )
+              case B_2_Send
+              solve( !KU( 'g'^~x.1 ) @ #vk.13 )
+                case A_1_Send
+                SOLVED // trace found
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma noninjectiveagreementRESPONDER:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'R', 'I', t> ) @ #i) ⇒
+    ((∃ #j. Running( b, a, <'R', 'I', t> ) @ #j) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'R', 'I', t> ) @ #i)
+ ∧
+  (∀ #j. (Running( b, a, <'R', 'I', t> ) @ #j) ⇒ ⊥) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'R', 'I', t> ) @ #i )
+  case B_1_Receive
+  solve( St_B_1( a, ~id, ltkR, pk(x), b ) ▶₀ #i )
+    case Init_B
+    solve( !KU( sign(<'init', t, $A>, ~ltkA.1) ) @ #vk.5 )
+      case A_1_Send
+      by contradiction /* from formulas */
+    next
+      case c_sign
+      solve( !KU( ~ltkA.1 ) @ #vk.9 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementRESPONDER:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'R', 'I', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'R', 'I', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'R', 'I', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'R', 'I', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'R', 'I', t> ) @ #i )
+  case B_1_Receive
+  solve( St_B_1( a, ~id, ltkR, pk(x), b ) ▶₀ #i )
+    case Init_B
+    solve( !KU( sign(<'init', t, $A>, ~ltkA.1) ) @ #vk.5 )
+      case A_1_Send
+      solve( (#i2 < #i)  ∥ (#i < #i2) )
+        case case_1
+        solve( Commit( a2, b2, <'R', 'I', 'g'^~x> ) @ #i2 )
+          case B_1_Receive
+          solve( St_B_1( a2, ~id.1, ltkR, pk(x.1), b2 ) ▶₀ #i2 )
+            case Init_B
+            solve( !KU( sign(<'init', 'g'^~x, $A.2>, ~ltkA.3) ) @ #vk.10 )
+              case A_1_Send
+              solve( !KU( pk(~ltkA.1) ) @ #vk.6 )
+                case A_1_Send
+                solve( !KU( 'g'^~x ) @ #vk.6 )
+                  case A_1_Send
+                  SOLVED // trace found
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+restriction Equality:
+  "∀ x y #i. (Eq( x, y ) @ #i) ⇒ (x = y)"
+  // safety formula
+
+restriction Uniqueness:
+  "∀ X #i #j. ((Unique( X ) @ #i) ∧ (Unique( X ) @ #j)) ⇒ (#i = #j)"
+  // safety formula
+
+/* All well-formedness checks were successful. */
+
+end

@@ -1,0 +1,171 @@
+theory P1 begin
+
+// Function signature and definition of the equational theory E
+
+functions: fst/1, mac/2, pair/2, sdec/2, senc/2, snd/1
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+rule (modulo E) Shared_Key:
+   [ Fr( ~skAB ) ] --[ NotEq( $A, $B ) ]-> [ !SKey( $A, $B, ~skAB ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_SK:
+   [ !SKey( A, B, skAB ) ]
+  --[ Reveal( A ), Reveal( B ) ]->
+   [ Out( skAB ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_A:
+   [ Fr( ~id ), !SKey( I, R, skAB ) ]
+  --[ Create_A( I, ~id ) ]->
+   [ St_A_1( I, ~id, skAB, R ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_B:
+   [ Fr( ~id ), !SKey( I, R, skAB ) ]
+  --[ Create_B( R, ~id ) ]->
+   [ St_B_1( R, ~id, skAB, I ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_1_Send:
+   [ St_A_1( I, ~id, skAB, R ), Fr( ~x ) ]
+  --[ Send( I, <'1', ~x> ) ]->
+   [ St_A_2( I, ~id, skAB, R, ~x ), Out( <'1', ~x> ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_1_Receive:
+   [ St_B_1( R, ~id, skAB, I ), In( <'1', x> ) ]
+  --[ Receive( R, <'1', x> ) ]->
+   [ St_B_2( R, ~id, skAB, I, x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_2_Send:
+   [ St_B_2( R, ~id, skAB, I, x ) ]
+  --[ Send( R, mac(<'1', x>, skAB) ), Running( R, I, <'I', 'R', x> )
+  ]->
+   [ St_B_3( R, ~id, skAB, I, x ), Out( mac(<'1', x>, skAB) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_2_Receive:
+   [ St_A_2( I, ~id, skAB, R, x ), In( mac(<'1', x>, skAB) ) ]
+  --[
+  Receive( I, mac(<'1', x>, skAB) ), Commit( I, R, <'I', 'R', x> ),
+  Honest( I ), Honest( R ), Finish( )
+  ]->
+   [ St_A_3( I, ~id, skAB, R, x ) ]
+
+  /* has exactly the trivial AC variant */
+
+lemma executable:
+  exists-trace
+  "∃ #i. (Finish( ) @ #i) ∧ (¬(∃ A #j. Reveal( A ) @ #j))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ #i. (Finish( ) @ #i) ∧ ∀ A #j. (Reveal( A ) @ #j) ⇒ ⊥"
+*/
+simplify
+solve( St_A_2( I, ~id, skAB, R, x ) ▶₀ #i )
+  case A_1_Send
+  solve( !KU( mac(<'1', ~x>, ~skAB) ) @ #vk )
+    case B_2_Send
+    solve( !KU( ~x ) @ #vk.3 )
+      case A_1_Send
+      SOLVED // trace found
+    qed
+  qed
+qed
+
+lemma noninjectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j. Running( b, a, <'I', 'R', t> ) @ #j) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j. (Running( b, a, <'I', 'R', t> ) @ #j) ⇒ ⊥) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( a, ~id, skAB, b, t ) ▶₀ #i )
+  case A_1_Send
+  solve( !KU( mac(<'1', ~x>, ~skAB) ) @ #vk )
+    case B_2_Send
+    by contradiction /* from formulas */
+  next
+    case c_mac
+    solve( !KU( ~skAB ) @ #vk.2 )
+      case Reveal_SK
+      by contradiction /* from formulas */
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( a, ~id, skAB, b, t ) ▶₀ #i )
+  case A_1_Send
+  solve( !KU( mac(<'1', ~x>, ~skAB) ) @ #vk )
+    case B_2_Send
+    solve( (#i2 < #i)  ∥ (#i < #i2) )
+      case case_1
+      solve( St_A_2( a2, ~id.1, skAB.1, b2, ~x ) ▶₀ #i2 )
+        case A_1_Send
+        by contradiction /* cyclic */
+      qed
+    next
+      case case_2
+      solve( St_A_2( a2, ~id.1, skAB.1, b2, ~x ) ▶₀ #i2 )
+        case A_1_Send
+        by contradiction /* cyclic */
+      qed
+    qed
+  next
+    case c_mac
+    solve( !KU( ~skAB ) @ #vk.2 )
+      case Reveal_SK
+      by contradiction /* from formulas */
+    qed
+  qed
+qed
+
+restriction Inequality:
+  "∀ X Y #i. (NotEq( X, Y ) @ #i) ⇒ (¬(X = Y))"
+  // safety formula
+
+/* All well-formedness checks were successful. */
+
+end

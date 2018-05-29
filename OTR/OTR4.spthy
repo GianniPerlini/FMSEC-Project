@@ -1,0 +1,263 @@
+theory OTR4
+begin
+
+builtins: diffie-hellman, signing, hashing
+functions: mac/2
+
+// Public key infrastructure
+
+rule Register_Pk:
+  [ Fr(~ltkA) ]
+  --[ Unique($A) ]->
+  [ !Ltk($A, ~ltkA)
+  , !Pk($A, pk(~ltkA))  
+  , Out(pk(~ltkA)) 
+  ] 
+
+rule Reveal_ltk:
+  [ !Ltk(A, ltkA) ] 
+--[ Reveal(A) ]-> 
+  [ Out(ltkA) ]
+
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: '1', g^x
+    2. A <- B: '2', g^y
+    3. A -> B: 'A', Sign(g^y, g^x, skA), Mac('0', 'A', Km), pkA
+    4. A <- B: 'B', Sign(g^x, g^y, skB), Mac('1', 'B', Km), pkB
+  }
+
+  where Km = h(g^(xy))
+
+*/	
+
+
+// Initialization
+
+rule Init_A:
+  [ Fr(~id)
+  , !Ltk(I, ltkI)
+  , !Pk(R, pkR)
+  ]
+--[ Create_A(I, ~id) 
+  , Unique_Init(I)
+  ]->
+  [ St_A_1(I, ~id, ltkI, pkR, R) ] 
+
+rule Init_B:
+  [ Fr(~id)
+  , !Ltk(R, ltkR)
+  , !Pk(I, pkI)
+  ]
+--[ Create_B(R, ~id)  
+  , Unique_Init(R)
+  ]->
+  [ St_B_1(R, ~id, ltkR, pkI, I) ]
+
+
+// Formalization of 1. for both A and B
+
+rule A_1_Send:
+  let 
+     mA1 = <'1', 'g'^~x>
+  in
+
+  [ St_A_1(I, ~id, ltkI, pkR, R)
+  , Fr(~x)
+  ]
+--[ Send(I, mA1) ]->
+  [ St_A_2(I, ~id, ltkI, pkR, R, ~x) 
+  , Out(mA1)
+  ] 
+
+rule B_1_Receive:
+  let 
+     mB1 = <'1', gX>
+  in
+
+  [ St_B_1(R, ~id, ltkR, pkI, I)
+  , In(mB1)
+  ]
+--[ Receive(R, mB1) ]->
+  [ St_B_2(R, ~id, ltkR, pkI, I, gX) ]
+
+// Formalization of 2. for both A and B
+
+rule B_2_Send:
+  let 
+     mB2 = <'2', 'g'^~y>
+  in
+  
+  [ St_B_2(R, ~id, ltkR, pkI, I, gX)
+  , Fr(~y)
+  ]
+--[ Send(R, mB2) ]->
+  [ St_B_3(R, ~id, ltkR, pkI, I, gX, ~y)
+  , Out(mB2)
+  ]
+
+rule A_2_Receive:
+  let 
+     mA2 = <'2', gY>
+  in
+
+  [ St_A_2(I, ~id, ltkI, pkR, R, x) 
+  , In(mA2)
+  ]
+--[ Receive(I, mA2) ]->
+  [ St_A_3(I, ~id, ltkI, pkR, R, x, gY) ] 
+
+
+// Formalization of 3. for both A and B
+
+rule A_3_Send:
+  let
+    Km = h(gY^x)
+    signature = sign(<'init', gY, 'g'^x>, ltkI)
+    macA = mac(<'0', I>, Km)
+    mA3 = <'3', I, signature, macA, pk(ltkI)>
+  in
+
+  [ St_A_3(I, ~id, ltkI, pkR, R, x, gY) ]
+--[ Send(I, mA3) 
+  , Running(I, R, <'R', 'I', Km>)
+  ]->
+  [ St_A_4(I, ~id, ltkI, pkR, R, x, gY)
+  , Out(mA3)
+  ]
+
+
+rule B_3_Receive:
+  let
+    Km = h(gX^y)
+    macA = mac(<'0', I>, Km)
+    mB3 = <'3', I, signature, macA, pkI>
+  in
+
+  [ St_B_3(R, ~id, ltkR, pkI, I, gX, y) 
+  , In(mB3)
+  ]
+--[ Receive(R, mB3)
+  , Running(R, I, <'I', 'R', Km>)
+  , Eq(verify(signature, <'init', 'g'^y, gX>, pkI), true)
+  ]->
+  [ St_B_4(R, ~id, ltkR, pkI, I, gX, y) ]
+
+
+// Formalization of 4. for both A and B
+
+rule B_4_Send:
+  let
+    Km = h(gX^y)
+    signature = sign(<'resp', gX, 'g'^y>, ltkR)
+    macB = mac(<'1', R>, Km)
+    mB4 = <'4', I, signature, macB, pk(ltkR)>
+
+  in
+    [ St_B_4(R, ~id, ltkR, pkI, I, gX, y) ]
+  --[ Send(R, mB4)
+    , Secret(R, Km)
+    , Commit(R, I, <'R', 'I', Km>)
+    , Honest(R)
+    , Honest(I)
+    , Finish(R, I, Km)
+    ]->
+    [ St_B_5(R, ~id, ltkR, pkI, I, Km) 
+    , Out(mB4)
+    ]
+
+
+rule A_4_Receive:
+  let
+    Km = h(gY^x)
+    macB = mac(<'1', R>, Km)
+    mA4 = <'4', I, signature, macB, pkR>
+
+  in
+    [ St_A_4(I, ~id, ltkI, pkR, R, x, gY)
+    , In(mA4) 
+    ]
+  --[ Receive(I, mA4) 
+    , Secret(I, Km)
+    , Commit(I, R, <'I', 'R', Km>)
+    , Honest(I)
+    , Honest(R)
+    , Finish(I, R, Km)
+    , Eq(verify(signature, <'resp', 'g'^x, gY>, pkR), true)
+    ]->
+    [ St_A_5(I, ~id, ltkI, pkR, R, Km) ]
+
+
+// Lemmas
+
+// Verified
+lemma executable:
+  exists-trace
+    "
+      Ex A B t #i #j.
+        Finish(A, B, t) @i & Finish(B, A, t) @j        
+       & (All A #k #l. Unique_Init(A) @k & Unique_Init(A) @l ==> #k=#l)  
+       & not (Ex B #m. Reveal(B) @m)
+    "
+
+// Verified
+lemma secrecy:
+  "All A x #i. 
+    Secret(A,x) @i ==> 
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// Verified
+lemma secrecy_PFS:
+  "All A x #i. 
+    Secret(A,x) @i ==> 
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i & r < i)"
+
+// Verified
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// Verified
+lemma injectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+
+// Not verified
+lemma noninjectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// Not verified
+lemma injectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j 
+              & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>) @i2
+                                 & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+
+// Restrictions
+
+restriction Equality:
+  "All x y #i. Eq(x,y) @i ==> x = y"
+
+restriction Uniqueness:
+  "All X #i #j.
+    Unique(X) @i & Unique(X) @j
+    ==> #i = #j
+  "
+
+end

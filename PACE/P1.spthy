@@ -1,0 +1,132 @@
+theory P1
+begin
+
+builtins: symmetric-encryption
+functions: mac/2
+
+// Shared symmetric key setup and reveal
+
+rule Shared_Key:
+  [ Fr(~skAB) ]
+  --[ NotEq($A, $B) ]->
+  [ !SKey($A, $B, ~skAB) ] 
+
+rule Reveal_SK:
+  [ !SKey(A, B, skAB) ] 
+  --[ Reveal(A), Reveal(B) ]-> 
+  [ Out(skAB) ]
+
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: {'1', x}
+    2. A <- B: {'2', x}k(A, B)
+  }
+
+  Where 2. is a MAC of the nonce x using the symmetic key k(A, B) 
+  and '1', '2' are tags contained in the messages (see Project Description -> Tagging)
+
+*/	
+
+// Initialization
+
+rule Init_A:
+  [ Fr(~id) 
+  , !SKey(I, R, skAB)
+  ]
+  --[ Create_A(I, ~id) ]->
+  [ St_A_1(I, ~id, skAB, R) ] 
+
+rule Init_B:
+  [ Fr(~id) 
+  , !SKey(I, R, skAB)
+  ]
+  --[ Create_B(R, ~id) ]->
+  [ St_B_1(R, ~id, skAB, I) ] 
+
+// Formalization of 1. for both A and B
+
+rule A_1_Send:
+  let 
+     mA1 = <'1', ~x>
+  in
+  [ St_A_1(I, ~id, skAB, R)
+  , Fr(~x)
+  ]
+  --[ Send(I, mA1) ]->
+  [ St_A_2(I, ~id, skAB, R, ~x) 
+  , Out(mA1)
+  ]
+
+rule B_1_Receive:
+  let 
+     mB1 = <'1', x>
+  in
+  [ St_B_1(R, ~id, skAB, I)
+  , In(mB1)
+  ]
+  --[ Receive(R, mB1) ]->
+  [ St_B_2(R, ~id, skAB, I, x) ]
+
+// Formalization of 2. for both A and B
+
+rule B_2_Send:
+  let 
+     mB2 = mac(<'1', x>, skAB)
+  in
+  [ St_B_2(R, ~id, skAB, I, x) ]
+--[ Send(R, mB2) 
+  , Running(R, I, <'I','R', x> )
+  ]->
+  [ St_B_3(R, ~id, skAB, I, x)
+  , Out(mB2)
+  ]
+
+rule A_2_Receive:
+  let 
+     mA2 = mac(<'1', x>, skAB)
+  in
+  [ St_A_2(I, ~id, skAB, R, x)
+  , In(mA2)
+  ]
+--[ Receive(I, mA2) 
+  , Commit(I, R, <'I', 'R', x>)
+  , Honest(I)
+  , Honest(R) 
+  , Finish() 
+  ]->
+  [ St_A_3(I, ~id, skAB, R, x) ]
+
+// Lemmas
+
+// All lemmas get verified
+
+lemma executable:
+  exists-trace
+    // We want to be sure that the protocol is executable without the help of the attacker
+    "
+      Ex #i.
+         Finish() @i 
+       & not (Ex A #j. Reveal(A) @j) 
+    "
+    
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+lemma injectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a, b, <'I', 'R', t>) @i
+    ==> (Ex #j. Running(b, a, <'I', 'R', t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2, b2, <'I', 'R', t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// Restrictions	
+
+restriction Inequality:
+  " All X Y #i. NotEq(X, Y) @i ==> not (X = Y) "
+
+end
