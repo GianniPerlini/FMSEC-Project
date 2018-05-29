@@ -1,6 +1,7 @@
 # Formal Methods for Information Security: Project
 
 This directory contains all the files used for the project and is structured as follows:
+
 ```
 FMSECProject
 │   README.md            # This file
@@ -43,5 +44,5 @@ FMSECProject
 │       │   P5ab-proof.spthy
 │       │   P5dAttackable-proof.spthy
 │       │   P5d-proof.spthy
-│   
+
 ```
